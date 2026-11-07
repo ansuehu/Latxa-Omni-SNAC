@@ -19,7 +19,7 @@ from tqdm import tqdm
 
 from omni_speech.conversation import conv_templates
 from omni_speech.datasets.preprocess import tokenizer_speech_token
-from omni_speech.model.builder import load_pretrained_model
+from omni_speech.model.builder import QWEN3_5_MODEL_TYPES, load_pretrained_model
 from omni_speech.model.speech_generator.snac_codec import SNAC_SAMPLE_RATE, SnacCodec
 from omni_speech.train.stage1 import USER_PROMPT
 
@@ -30,10 +30,13 @@ def load_mel(path, mel_size):
 
 
 def main(args):
+    with open(Path(args.model_path) / "config.json", encoding="utf-8") as stream:
+        model_type = json.load(stream)["model_type"]
+    conv_mode = args.conv_mode or ("qwen3_5" if model_type in QWEN3_5_MODEL_TYPES else "llama_3")
     tokenizer, model, _ = load_pretrained_model(args.model_path, None, s2s=True)
     model.eval()
     codec = SnacCodec()
-    conv = conv_templates[args.conv_mode].copy()
+    conv = conv_templates[conv_mode].copy()
     conv.append_message(conv.roles[0], USER_PROMPT)
     conv.append_message(conv.roles[1], None)
     input_ids = tokenizer_speech_token(conv.get_prompt(), tokenizer, return_tensors="pt")[None].cuda()
@@ -72,7 +75,7 @@ if __name__ == "__main__":
     parser.add_argument("--model-path", required=True)
     parser.add_argument("--question-file", required=True)
     parser.add_argument("--answer-file", required=True)
-    parser.add_argument("--conv-mode", default="llama_3")
+    parser.add_argument("--conv-mode", help="chat template; default llama_3, or qwen3_5 for a Qwen3.5 model")
     parser.add_argument("--mel_size", type=int, default=128)
     parser.add_argument("--temperature", type=float, default=0.0)
     parser.add_argument("--top_p", type=float, default=None)
