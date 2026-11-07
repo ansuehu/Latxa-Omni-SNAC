@@ -1,0 +1,20 @@
+# Latxa-Qwen3.5-4B thinker (transformers 5). Install torch for your CUDA first, e.g.
+#   pip install torch==2.8.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu128
+torch==2.8.0
+torchaudio==2.8.0
+transformers==5.18.0
+accelerate==1.15.0
+deepspeed==0.18.9
+peft==0.21.2
+datasets==5.1.0
+flash-linear-attention==0.5.2
+tilelang==0.1.15
+safetensors
+sentencepiece
+einops
+openai-whisper==20250625
+snac==1.2.1
+soundfile
+librosa
+wandb
+gradio>=5

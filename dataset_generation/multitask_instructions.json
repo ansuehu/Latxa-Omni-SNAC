@@ -1,0 +1,75 @@
+{
+  "_note": "Hand-written seed instructions (MULTITASK.md §2.2). To be expanded to 30-50 per task (about 200 for asr) with Latxa-70B and reviewed by a native speaker.",
+  "chat": [
+    "Erantzun audioan entzuten den galderari.",
+    "Entzun erabiltzailearen galdera eta erantzun zuzenean.",
+    "Erantzun ahozko mezu honi.",
+    "Zer erantzungo zenioke audio honetako galderari?",
+    "Entzun eta erantzun.",
+    "Erabiltzaileak zerbait galdetu dizu ahoz. Erantzun iezaiozu.",
+    "Erantzun labur eta argi grabazioko galderari.",
+    "Hona hemen erabiltzailearen ahots-mezua. Erantzun euskaraz."
+  ],
+  "asr": [
+    "Transkribatu audio hau.",
+    "Idatzi audioan esaten dena, hitzez hitz.",
+    "Zer esaten da grabazio honetan? Idatzi transkripzioa.",
+    "Transkribatu euskarazko audio hau testura.",
+    "Idatzi entzuten duzun guztia, ezer aldatu gabe.",
+    "Bihurtu ahots hau testu idatzi.",
+    "Egin audio honen transkripzio zehatza.",
+    "Idatzi hiztunak esandakoa.",
+    "Entzun grabazioa eta idatzi esaten dena.",
+    "Transkripzioa, mesedez."
+  ],
+  "st_en": [
+    "Itzuli audio hau ingelesera.",
+    "Entzun eta idatzi esandakoa ingelesez.",
+    "Itzuli ingelesera hiztunak esandakoa.",
+    "Idatzi grabazio honen itzulpena ingelesez.",
+    "Ingelesez, mesedez: zer dio audioak?",
+    "Egin audio honen ingelesezko itzulpena.",
+    "Itzuli euskaratik ingelesera entzuten duzuna.",
+    "Zer esaten da audioan? Idatzi ingelesez."
+  ],
+  "tts": [
+    "Irakurri ozen testu hau.",
+    "Irakurri hurrengo testua ozenki, hitzez hitz.",
+    "Esan ozen:",
+    "Errepikatu ozen testu hau, ezer aldatu gabe.",
+    "Irakurri hau:",
+    "Ahoz irakurri testu hau.",
+    "Esan hau zure ahotsarekin:",
+    "Irakurri ozenki, idatzita dagoen bezala:"
+  ],
+  "st_en_text": [
+    "Itzuli testu hau ingelesera.",
+    "Itzuli ingelesera:",
+    "Idatzi testu honen itzulpena ingelesez.",
+    "Nola esaten da hau ingelesez?",
+    "Itzuli hurrengo esaldia ingelesera.",
+    "Ingelesera itzuli, mesedez:",
+    "Eman testu honen ingelesezko itzulpena.",
+    "Itzuli euskaratik ingelesera:"
+  ],
+  "st_es": [
+    "Itzuli audio hau gaztelaniara.",
+    "Entzun eta idatzi esandakoa gaztelaniaz.",
+    "Itzuli gaztelaniara hiztunak esandakoa.",
+    "Idatzi grabazio honen itzulpena gaztelaniaz.",
+    "Zer esaten du audioak? Erantzun gaztelaniaz.",
+    "Gaztelaniara itzuli entzuten dena.",
+    "Itzuli espainierara audioan esaten dena.",
+    "Eman audio honen itzulpena gaztelaniaz."
+  ],
+  "st_es_text": [
+    "Itzuli testu hau gaztelaniara.",
+    "Itzuli gaztelaniara:",
+    "Idatzi testu honen itzulpena gaztelaniaz.",
+    "Nola esaten da hau gaztelaniaz?",
+    "Itzuli hurrengo esaldia gaztelaniara.",
+    "Gaztelaniara itzuli, mesedez:",
+    "Eman testu honen gaztelaniazko itzulpena.",
+    "Itzuli euskaratik gaztelaniara:"
+  ]
+}
