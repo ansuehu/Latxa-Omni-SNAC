@@ -114,6 +114,18 @@ class QwenS2SCheckpointTest(unittest.TestCase):
 
 
 @needs_qwen
+class QwenS2STrainerTest(unittest.TestCase):
+    def test_trainer_averages_the_loss_itself(self):
+        """The talker loss is a batch mean: the Trainer must divide it by the accumulation steps."""
+        from omni_speech.train.stage2 import Stage2Trainer
+
+        with tempfile.TemporaryDirectory() as directory:
+            args = TrainingArguments(output_dir=directory, report_to=[])
+            trainer = Stage2Trainer(model=tiny_s2s(), args=args, talker_only=True)
+        self.assertFalse(trainer.model_accepts_loss_kwargs)
+
+
+@needs_qwen
 @needs_gpu
 class QwenS2SModelTest(unittest.TestCase):
     def batch(self):

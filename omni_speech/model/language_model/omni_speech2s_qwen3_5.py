@@ -26,6 +26,9 @@ class OmniSpeech2SQwen3_5Config(OmniSpeechQwen3_5Config):
 
 class OmniSpeech2SQwen3_5ForCausalLM(OmniSpeechQwen3_5ForCausalLM):
     config_class = OmniSpeech2SQwen3_5Config
+    # The talker loss is already a per-batch mean. Otherwise transformers 5's Trainer (seeing **kwargs in
+    # forward) skips dividing by the accumulation steps and multiplies by the GPU count.
+    accepts_loss_kwargs = False
 
     def __init__(self, config):
         super().__init__(config)
