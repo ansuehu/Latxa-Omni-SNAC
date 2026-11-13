@@ -14,26 +14,17 @@ from pathlib import Path
 
 import torch
 import whisper
-from huggingface_hub import snapshot_download
 from tqdm import tqdm
 
 from omni_speech.conversation import conv_templates
 from omni_speech.datasets.preprocess import tokenizer_speech_token
+from omni_speech.evaluate.eus_listening_data import load_items
 from omni_speech.evaluate.merge_stage1_with_base import interpolate_model, parse_spec
 from omni_speech.evaluate.text_forgetting_eval import letter_prompt
-from omni_speech.model.builder import create_model
+from omni_speech.model.builder import QWEN3_5_MODEL_TYPES, create_model
 
 INSTRUCTION = "Entzun audioa eta erantzun galderari aukeraren letrarekin soilik."
 SPEECH_TOKENS_PER_CHUNK = 300  # 3000 mel frames, halved by Whisper, then the projector's k=5
-
-
-def load_items():
-    root = Path(snapshot_download("HiTZ/EusListening", repo_type="dataset"))
-    with open(root / "data" / "entzumena.jsonl", encoding="utf-8") as stream:
-        items = [json.loads(line) for line in stream]
-    for item in items:
-        item["audio"] = str(root / item["audio"])
-    return items
 
 
 def audio_chunks(path, mel_size):
@@ -76,7 +67,7 @@ def predict(model, input_ids, chunks, choice_ids):
 
 
 def main(args):
-    items = load_items()
+    items = load_items(args.data)
     if args.limit:
         items = items[:args.limit]
     output_dir = Path(args.output_dir)
@@ -86,6 +77,7 @@ def main(args):
         checkpoint = Path(checkpoint)
         name = f"{checkpoint.parent.name}_{checkpoint.name}" + ("" if alpha is None else f"_alpha{alpha:g}")
         tokenizer, model, _ = create_model(str(checkpoint), None)
+        conv_mode = args.conv_mode or ("qwen3_5" if model.config.model_type in QWEN3_5_MODEL_TYPES else "llama_3")
         model = model.cuda().eval()
         # Training cut prompts at 4096 tokens; a long recording (300 tokens per chunk) would lose the question.
         model.config.tokenizer_model_max_length = None
@@ -97,9 +89,9 @@ def main(args):
             if item["audio"] != chunks_path:
                 chunks, chunks_path = audio_chunks(item["audio"], args.mel_size), item["audio"]
             choice_ids = letter_ids(tokenizer, len(item["candidates"]))
-            input_ids = build_prompt(item, len(chunks), tokenizer, args.conv_mode)
+            input_ids = build_prompt(item, len(chunks), tokenizer, conv_mode)
             with_audio = predict(model, input_ids, chunks, choice_ids)
-            no_audio = predict(model, build_prompt(item, 0, tokenizer, args.conv_mode), [], choice_ids)
+            no_audio = predict(model, build_prompt(item, 0, tokenizer, conv_mode), [], choice_ids)
             rows.append({
                 "id": item["id"], "source": item["source_dataset"], "answer": item["answer"],
                 "prediction": with_audio, "prediction_no_audio": no_audio, "chunks": len(chunks),
@@ -131,7 +123,9 @@ if __name__ == "__main__":
                         help="Stage 1 checkpoint directories; <checkpoint>@<alpha> merges the LLM toward --base")
     parser.add_argument("--base", default="HiTZ/Latxa-Llama-3.1-8B-Instruct")
     parser.add_argument("--output-dir", required=True)
-    parser.add_argument("--conv-mode", default="llama_3")
+    parser.add_argument("--conv-mode", help="chat template; default llama_3, or qwen3_5 for a Qwen3.5 model")
+    parser.add_argument("--data", default="saves/eus_listening/entzumena_dedup.jsonl",
+                        help="question file; empty for the original 981 questions")
     parser.add_argument("--mel_size", type=int, default=128)
     parser.add_argument("--limit", type=int, help="first N questions, for smoke tests")
     main(parser.parse_args())

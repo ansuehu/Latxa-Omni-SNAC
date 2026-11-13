@@ -25,8 +25,17 @@ def merge_tensor(stage1, base, alpha):
 
 
 def weight_map(model_dir):
-    with open(Path(model_dir) / "model.safetensors.index.json", encoding="utf-8") as stream:
+    index = Path(model_dir) / "model.safetensors.index.json"
+    if not index.exists():  # a single unsharded file (e.g. the Qwen3.5 text model)
+        with safe_open(Path(model_dir) / "model.safetensors", "pt") as stream:
+            return {key: "model.safetensors" for key in stream.keys()}
+    with open(index, encoding="utf-8") as stream:
         return json.load(stream)["weight_map"]
+
+
+def param_name(key, params):
+    """transformers 5 saves Qwen3.5 text weights as model.language_model.*, but loads them as model.*."""
+    return key if key in params else key.replace("model.language_model.", "model.", 1)
 
 
 def resolve_dir(model):
@@ -45,13 +54,13 @@ def interpolate_model(model, base, alpha):
     base_dir = resolve_dir(base)
     base_map = weight_map(base_dir)
     params = dict(model.named_parameters())
-    missing = sorted(set(base_map) - set(params))
+    missing = sorted(key for key in base_map if param_name(key, params) not in params)
     if missing:
         raise ValueError(f"{len(missing)} base weights missing from the model, e.g. {missing[:3]}")
     for name in sorted(set(base_map.values())):
         with safe_open(base_dir / name, "pt") as stream:
             for key in stream.keys():
-                param = params[key]
+                param = params[param_name(key, params)]
                 param.copy_(merge_tensor(param.data, stream.get_tensor(key).to(param.device), alpha))
     return model
 

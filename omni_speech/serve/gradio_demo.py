@@ -60,6 +60,14 @@ def to_pcm16(audio):
     return (np.clip(audio, -1.0, 1.0) * 32767).astype("<i2").tobytes()
 
 
+def to_wav(audio, sample_rate=SNAC_SAMPLE_RATE):
+    """A complete 16-bit mono WAV file of these samples."""
+    data = to_pcm16(audio)
+    return (b"RIFF" + struct.pack("<I", 36 + len(data)) + b"WAVEfmt "
+            + struct.pack("<IHHIIHH", 16, 1, 1, sample_rate, sample_rate * 2, 2, 16)
+            + b"data" + struct.pack("<I", len(data)) + data)
+
+
 class Assistant:
     def __init__(self, args, model_path=None, device="cuda"):
         self.args = args
@@ -121,7 +129,8 @@ class Assistant:
             max_new_tokens=self.args.max_new_tokens,
             temperature=temperature,
             top_p=top_p,
-            talker_kwargs={"temperature": talker_temperature, "max_tokens": self.args.max_units},
+            talker_kwargs={"temperature": talker_temperature, "max_tokens": self.args.max_units,
+                           "fast": getattr(self.args, "fast_talker", False)},
         )
         for kind, ids in events:
             if kind == "text":
@@ -187,6 +196,14 @@ def build_demo(assistant):
     import gradio as gr
 
     patch_gradio_schema_bug()
+    # Gradio 4 appends streamed bytes to one growing WAV; Gradio 5 (omni-qwen) re-encodes every chunk on its own as
+    # an AAC segment, so each chunk must be a complete file. Short segments play with gaps (and each conversion holds
+    # up the text), so under Gradio 5 audio is sent in segments of at least --segment-seconds, the first one shorter
+    # (--first-segment-seconds) so the speech starts soon after the text.
+    gradio_major = int(gr.__version__.split(".")[0])
+    gradio5 = gradio_major >= 5
+    segment = int(assistant.args.segment_seconds * SNAC_SAMPLE_RATE)
+    first_segment = int(assistant.args.first_segment_seconds * SNAC_SAMPLE_RATE)
 
     def respond(audio_path, user_text, instruction, text_only, transcribe_first, chat, turns, temperature, top_p,
                 talker_temperature):
@@ -209,13 +226,22 @@ def build_demo(assistant):
         chat = chat + [{"role": "user", "content": c} for c in shown if c] + [{"role": "assistant", "content": ""}]
         speak = assistant.has_talker and not text_only
         # None, not b"", when silent: Gradio 5 (omni-qwen) runs every streamed chunk through ffmpeg.
-        yield chat, wav_stream_header() if speak else None, turns, None, ""
-        pieces, text = [], ""
+        yield chat, wav_stream_header() if speak and not gradio5 else None, turns, None, ""
+        pieces, text, pending, sent = [], "", [], False
         for text, audio in assistant.stream(features, answers, user_turns, temperature, top_p,
                                             talker_temperature, text_only=text_only):
             chat[-1]["content"] = text
             pieces.append(audio)
-            yield chat, to_pcm16(audio) if speak else None, turns, None, ""
+            if not gradio5:
+                yield chat, to_pcm16(audio) if speak else None, turns, None, ""
+                continue
+            pending.append(audio)
+            ready = sum(len(a) for a in pending) >= (segment if sent else first_segment)
+            yield chat, to_wav(np.concatenate(pending)) if speak and ready else None, turns, None, ""
+            if ready:
+                pending, sent = [], True
+        if gradio5 and speak and sum(len(a) for a in pending):
+            yield chat, to_wav(np.concatenate(pending)), turns, None, ""
         if speak:
             wav = tempfile.NamedTemporaryFile(suffix=".wav", delete=False).name
             sf.write(wav, np.concatenate(pieces), SNAC_SAMPLE_RATE)
@@ -224,13 +250,14 @@ def build_demo(assistant):
             turns = turns + [{"features": feature, "text": text, "user": user_turns[-1]}]
         else:  # later turns see this one as text
             turns = turns + [{"features": None, "text": text, "user": {"instruction": instruction, "text": transcript}}]
-        yield chat, b"" if speak else None, turns, None, ""
+        yield chat, b"" if speak and not gradio5 else None, turns, None, ""
 
     with gr.Blocks(title="Latxa-Omni-SNAC") as demo:
         gr.Markdown("# Latxa-Omni-SNAC\nGrabatu galdera; erantzuna testu eta ahots moduan iritsiko da, "
                     "sortu ahala. / Record a question; the answer streams back as text and speech.")
         turns = gr.State([])
-        chat = gr.Chatbot(type="messages", height=480, label="Elkarrizketa")
+        # Gradio 6 only has the messages format and no longer takes type=.
+        chat = gr.Chatbot(height=480, label="Elkarrizketa", **({"type": "messages"} if gradio_major < 6 else {}))
         with gr.Row():
             audio_in = gr.Audio(sources=["microphone", "upload"], type="filepath", label="Zure galdera")
             audio_out = gr.Audio(streaming=True, autoplay=True, label="Erantzuna", interactive=False)
@@ -295,7 +322,12 @@ def main():
     parser.add_argument("--max_new_tokens", type=int, default=512)
     parser.add_argument("--max_units", type=int, default=4096, help="talker tokens per answer (~50 s)")
     parser.add_argument("--chunk-frames", type=int, default=4, help="SNAC frames (~85 ms each) per audio chunk")
+    parser.add_argument("--fast-talker", action="store_true", help="talker decoding with a CUDA graph per token")
     parser.add_argument("--first-chunk-frames", type=int, default=2)
+    parser.add_argument("--segment-seconds", type=float, default=1.5,
+                        help="Gradio 5+ only: shortest audio segment sent to the browser")
+    parser.add_argument("--first-segment-seconds", type=float, default=0.5,
+                        help="Gradio 5+ only: shortest first audio segment (lower = speech starts sooner)")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=7860)
     parser.add_argument("--share", action="store_true")

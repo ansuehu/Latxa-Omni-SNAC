@@ -116,6 +116,42 @@ class TalkerTest(unittest.TestCase):
             self.assertTrue(torch.equal(slots, torch.arange(len(units)) % FRAME_TOKENS))
 
 
+class FastDecoderTest(unittest.TestCase):
+    def test_fast_matches_cached_decoding(self):
+        greedy = {"temperature": 0, "repetition_penalty": 1.0, "max_tokens": 63}
+        for layout in ("prefix", "interleave"):
+            talker = tiny_talker(layout).eval()
+            torch.nn.init.normal_(talker.lm_head.weight, std=0.5)  # spread the logits so argmax ties are unlikely
+            for seed in (1, 2):  # the second answer reuses the first one's buffers
+                torch.manual_seed(seed)
+                cond = talker.fuse(torch.randn(9, 48), torch.randn(9, 48))
+                slow = talker.generate_units(cond, **greedy)
+                fast = talker.generate_units(cond, fast=True, max_conds=16, **greedy)
+                self.assertEqual(fast.tolist(), slow.tolist(), layout)
+
+    def test_fast_logits_match(self):
+        from transformers import DynamicCache
+
+        talker = tiny_talker().eval()
+        decoder = talker.fast_decoder(32)
+        embeds = torch.randn(5, 32)
+        with torch.no_grad():
+            out = talker.decoder(inputs_embeds=embeds[None], past_key_values=DynamicCache(), use_cache=True)
+            expected = talker.lm_head(out.last_hidden_state[0]).float()
+            self.assertTrue(torch.allclose(decoder.prefill(embeds[:3], 0), expected[2], atol=1e-5))
+            token_embeds = talker.decoder.embed_tokens(torch.tensor([7]))
+            full = torch.cat([embeds[:3], token_embeds])
+            out = talker.decoder(inputs_embeds=full[None])
+            expected = talker.lm_head(out.last_hidden_state[0, -1]).float()
+            self.assertTrue(torch.allclose(decoder.step(7, 3), expected, atol=1e-5))
+
+    def test_buffer_overflow_raises(self):
+        talker = tiny_talker("prefix").eval()  # all 9 conditions + BOS go in at once, past the 9-position buffer
+        cond = talker.fuse(torch.randn(9, 48), torch.randn(9, 48))
+        with self.assertRaises(ValueError):
+            talker.generate_units(cond, fast=True, max_tokens=7, max_conds=0, temperature=0)
+
+
 class StreamGenerateTest(unittest.TestCase):
     def test_streaming_matches_generate(self):
         from omni_speech.model.language_model.omni_speech2s_llama import (

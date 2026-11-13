@@ -17,6 +17,7 @@
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:-$PWD}"
 export PYTHONPATH="$PWD"
+export PYTHONUNBUFFERED=1  # so the gradio.live link reaches the log
 export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}"
 export GRADIO_TEMP_DIR="${WORK_DIR:-/scratch/$USER}/gradio_tmp"
 mkdir -p "$GRADIO_TEMP_DIR"
@@ -31,4 +32,4 @@ else
     echo "Demo on http://$(hostname):$PORT"
     [[ "${SHARE:-0}" == 1 ]] && ARGS+=(--share)
 fi
-${CONDA_ENVS:-$HOME/.conda/envs}/omni-snac/bin/python omni_speech/serve/gradio_demo.py "${ARGS[@]}" "$@"
+${CONDA_ENVS:-$HOME/.conda/envs}/${CONDA_ENV:-omni-snac}/bin/python omni_speech/serve/gradio_demo.py "${ARGS[@]}" "$@"

@@ -13,9 +13,21 @@ enable GitHub Pages on its main branch.
 import argparse
 import json
 import shutil
+import subprocess
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+
+
+def copy_audio(src, stem):
+    """Copy a wav as mp3 (a tenth of the size) when ffmpeg is available, else as is."""
+    if shutil.which("ffmpeg"):
+        dst = stem.with_suffix(".mp3")
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", src, "-b:a", "64k", dst], check=True)
+    else:
+        dst = stem.with_suffix(".wav")
+        shutil.copyfile(src, dst)
+    return dst
 
 
 def main(args):
@@ -30,9 +42,8 @@ def main(args):
         q = questions[answer["question_id"]]
         qid = str(q["id"])
         question_audio = audio_dir / f"{qid}_q{Path(q['speech']).suffix}"
-        answer_audio = audio_dir / f"{qid}_a.wav"
         shutil.copyfile(q["speech"], question_audio)
-        shutil.copyfile(answer["prediction_wav"], answer_audio)
+        answer_audio = copy_audio(answer["prediction_wav"], audio_dir / f"{qid}_a")
         examples.append({
             "id": qid,
             "category": q.get("category"),

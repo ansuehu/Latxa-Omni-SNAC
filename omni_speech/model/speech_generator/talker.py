@@ -24,6 +24,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_sequence
 from transformers import AutoModel, LlamaConfig, LlamaModel
+from transformers.models.llama.modeling_llama import apply_rotary_pos_emb
 
 from omni_speech.constants import IGNORE_INDEX
 from .snac_codec import CODEBOOK_SIZE, FRAME_TOKENS
@@ -83,6 +84,83 @@ def build_layout(n_cond, audio, layout, read, write):
     supervised = (following >= 0) & (following != BOS)
     labels[:-1][supervised] = following[supervised]
     return tokens, cond_index, labels
+
+
+class FastTalkerDecoder:
+    """One-sequence decoding of the talker's Llama decoder with preallocated KV buffers.
+
+    The same math as LlamaModel with a KV cache, but every one-token step has the same shapes, so on CUDA it is
+    captured once as a CUDA graph and replayed: one launch per audio token instead of a few hundred kernel
+    launches from Python. It reuses the decoder's own modules and does not touch the transformers cache API,
+    so it works with transformers 4.45 and 5. Positions past the current one are masked, so the buffers are
+    reused across answers without clearing.
+    """
+
+    def __init__(self, talker, max_len):
+        self.decoder, self.lm_head, self.max_len = talker.decoder, talker.lm_head, max_len
+        config = self.decoder.config
+        self.heads, self.kv_heads = config.num_attention_heads, config.num_key_value_heads
+        self.head_dim = getattr(config, "head_dim", None) or config.hidden_size // self.heads
+        weight = self.lm_head.weight
+        shape = (len(self.decoder.layers), 1, self.kv_heads, max_len, self.head_dim)
+        self.keys = torch.zeros(shape, dtype=weight.dtype, device=weight.device)
+        self.values = torch.zeros_like(self.keys)
+        self.positions = torch.arange(max_len, device=weight.device)
+        self.token = torch.zeros(1, dtype=torch.long, device=weight.device)
+        self.position = torch.zeros(1, dtype=torch.long, device=weight.device)
+        self.graph = None
+        if weight.is_cuda:
+            self.position.fill_(max_len - 1)  # warm-up and capture write only the last, unused slot
+            stream = torch.cuda.Stream()
+            stream.wait_stream(torch.cuda.current_stream())
+            with torch.cuda.stream(stream):
+                for _ in range(2):
+                    self._forward(self.decoder.embed_tokens(self.token), self.position)
+            torch.cuda.current_stream().wait_stream(stream)
+            self.graph = torch.cuda.CUDAGraph()
+            with torch.cuda.graph(self.graph):
+                self.logits = self._forward(self.decoder.embed_tokens(self.token), self.position)
+
+    def _forward(self, embeds, positions):
+        """(T, dim) inputs at ``positions`` (T,) -> (V,) float logits of the last input."""
+        x = embeds.unsqueeze(0)
+        cos, sin = self.decoder.rotary_emb(x, positions.unsqueeze(0))
+        groups, length = self.heads // self.kv_heads, len(positions)
+        # Heads h * groups ... h * groups + groups - 1 share KV head h (as repeat_kv), so the queries are grouped
+        # per KV head instead of copying the whole KV buffer; row g * T + t of the mask is position t.
+        mask = (self.positions[None, :] <= positions[:, None]).repeat(groups, 1)
+        for i, layer in enumerate(self.decoder.layers):
+            attn = layer.self_attn
+            h = layer.input_layernorm(x)
+            q = attn.q_proj(h).view(1, length, self.heads, self.head_dim).transpose(1, 2)
+            k = attn.k_proj(h).view(1, length, self.kv_heads, self.head_dim).transpose(1, 2)
+            v = attn.v_proj(h).view(1, length, self.kv_heads, self.head_dim).transpose(1, 2)
+            q, k = apply_rotary_pos_emb(q, k, cos, sin)
+            self.keys[i].index_copy_(2, positions, k)
+            self.values[i].index_copy_(2, positions, v)
+            q = q.reshape(1, self.kv_heads, groups * length, self.head_dim)
+            out = F.scaled_dot_product_attention(q, self.keys[i], self.values[i], attn_mask=mask)
+            out = out.reshape(1, self.heads, length, self.head_dim).transpose(1, 2).reshape(1, length, -1)
+            x = x + attn.o_proj(out)
+            x = x + layer.mlp(layer.post_attention_layernorm(x))
+        return self.lm_head(self.decoder.norm(x)[0, -1]).float()
+
+    def prefill(self, embeds, start):
+        """Conditions (T, dim) at positions start, ..., start + T - 1; eager, since T varies."""
+        if start + len(embeds) > self.max_len:
+            raise ValueError(f"talker sequence longer than the fast decoder buffer ({self.max_len})")
+        return self._forward(embeds, torch.arange(start, start + len(embeds), device=self.positions.device))
+
+    def step(self, token, position):
+        """One audio token at ``position``. The returned logits are overwritten by the next step."""
+        if position >= self.max_len - 1:  # the last slot is the capture scratch slot
+            raise ValueError(f"talker sequence longer than the fast decoder buffer ({self.max_len})")
+        self.token.fill_(token)
+        self.position.fill_(position)
+        if self.graph is None:
+            return self._forward(self.decoder.embed_tokens(self.token), self.position)
+        self.graph.replay()
+        return self.logits
 
 
 class SpeechGeneratorSNAC(nn.Module):
@@ -184,27 +262,58 @@ class SpeechGeneratorSNAC(nn.Module):
             index = int(torch.multinomial(torch.softmax(logits, -1), 1))
         return EOS if index == CODEBOOK_SIZE else start + index
 
+    def fast_decoder(self, max_len):
+        """A FastTalkerDecoder of at least ``max_len`` positions, kept for later answers (and their CUDA graph)."""
+        weight = self.lm_head.weight
+        key = (weight.device, weight.dtype, weight.data_ptr())
+        cached = getattr(self, "_fast_decoder", None)
+        if cached is None or cached[0] != key or cached[1].max_len < max_len:
+            cached = (key, FastTalkerDecoder(self, max_len))
+            self._fast_decoder = cached
+        return cached[1]
+
     @torch.no_grad()
     def stream_units(self, conds, max_tokens=4096, temperature=0.7, top_k=50, top_p=0.95,
-                     repetition_penalty=1.1):
+                     repetition_penalty=1.1, fast=False, max_conds=4096):
         """Yield flat SNAC tokens.
 
         ``conds`` is an iterable of (dim,) condition vectors from ``fuse``. It may be a
         generator fed by the LLM as it decodes, so audio starts after ``read`` tokens.
+        ``fast`` decodes with FastTalkerDecoder (a CUDA graph per token on GPU), sized for
+        ``max_tokens`` audio tokens plus ``max_conds`` conditions.
         """
         from transformers import DynamicCache
 
-        cache = DynamicCache()
         device = self.lm_head.weight.device
         seen = torch.zeros(TALKER_VOCAB, dtype=torch.bool, device=device)
         count = 0
 
-        def step(embeds):
-            out = self.decoder(inputs_embeds=embeds.unsqueeze(0), past_key_values=cache, use_cache=True)
-            return self.lm_head(out.last_hidden_state[0, -1]).float()
-
         def embed(token):
             return self.decoder.embed_tokens(torch.tensor([token], device=device))
+
+        if fast:
+            decoder, position = self.fast_decoder(max_tokens + max_conds + 2), 0
+
+            def step(embeds):
+                nonlocal position
+                logits = decoder.prefill(embeds, position)
+                position += len(embeds)
+                return logits
+
+            def advance(token):
+                nonlocal position
+                logits = decoder.step(token, position)
+                position += 1
+                return logits
+        else:
+            cache = DynamicCache()
+
+            def step(embeds):
+                out = self.decoder(inputs_embeds=embeds.unsqueeze(0), past_key_values=cache, use_cache=True)
+                return self.lm_head(out.last_hidden_state[0, -1]).float()
+
+            def advance(token):
+                return step(embed(token))
 
         def sample(logits, allow_eos):
             nonlocal count
@@ -230,7 +339,7 @@ class SpeechGeneratorSNAC(nn.Module):
                     yield token
                     if count >= max_tokens:
                         return
-                    logits = step(embed(token))
+                    logits = advance(token)
             if logits is None:
                 return
         while count < max_tokens:
@@ -238,7 +347,7 @@ class SpeechGeneratorSNAC(nn.Module):
             if token == EOS:
                 return
             yield token
-            logits = step(embed(token))
+            logits = advance(token)
 
     def generate_units(self, cond, **kwargs):
         """Non-streaming helper: (T, dim) conditions -> (N,) LongTensor of flat SNAC tokens."""

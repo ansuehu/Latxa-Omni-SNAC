@@ -1,0 +1,79 @@
+[
+ {
+  "id": "q1",
+  "speech": "../ansuehu.github.io/Latxa-Omni-SNAC/audio/q1.mp3",
+  "text": "Eman ahal didazu informazio pixka bat bat larruzko jakak denboran zehar nola irauten duten eta merezi al du diru hori gastatzea?",
+  "conversation": 1,
+  "category": "Single questions"
+ },
+ {
+  "id": "q2",
+  "speech": "../ansuehu.github.io/Latxa-Omni-SNAC/audio/q2.mp3",
+  "text": "Kaixo esango ahal dizkidazu lau teknika bilatzaileetako sailkapena hobetzeko, badakizu?",
+  "conversation": 2,
+  "category": "Single questions"
+ },
+ {
+  "id": "q3",
+  "speech": "../ansuehu.github.io/Latxa-Omni-SNAC/audio/q3.mp3",
+  "text": "Kaixo, zein da Euskal Herriko mendirik altuena?",
+  "conversation": 3,
+  "category": "Follow-up chain: the highest mountain"
+ },
+ {
+  "id": "q4",
+  "speech": "../ansuehu.github.io/Latxa-Omni-SNAC/audio/q4.mp3",
+  "text": "Zein herri daude hor gertu?",
+  "conversation": 3,
+  "category": "Follow-up chain: the highest mountain"
+ },
+ {
+  "id": "q5",
+  "speech": "../ansuehu.github.io/Latxa-Omni-SNAC/audio/q5.mp3",
+  "text": "Nondik igo daiteke?",
+  "conversation": 3,
+  "category": "Follow-up chain: the highest mountain"
+ },
+ {
+  "id": "q6",
+  "speech": "../ansuehu.github.io/Latxa-Omni-SNAC/audio/q6.mp3",
+  "text": "Azaldu mesedez zer den adin hemen artifizial bat.",
+  "conversation": 4,
+  "category": "Follow-up: artificial intelligence"
+ },
+ {
+  "id": "q7",
+  "speech": "../ansuehu.github.io/Latxa-Omni-SNAC/audio/q7.mp3",
+  "text": "Orain azaldu ahal didazu mesedez, hamar urteko ume bat banintz bezala?",
+  "conversation": 4,
+  "category": "Follow-up: artificial intelligence"
+ },
+ {
+  "id": "q8",
+  "speech": "../ansuehu.github.io/Latxa-Omni-SNAC/audio/q8.mp3",
+  "text": "Kaixo, ez dakit zer afaldu gaur, esango zenidake pare bat adibide?",
+  "conversation": 5,
+  "category": "Follow-up chain: what to cook for dinner"
+ },
+ {
+  "id": "q9",
+  "speech": "../ansuehu.github.io/Latxa-Omni-SNAC/audio/q9.mp3",
+  "text": "Afaltzeko zerbait prestatu.",
+  "conversation": 5,
+  "category": "Follow-up chain: what to cook for dinner"
+ },
+ {
+  "id": "q10",
+  "speech": "../ansuehu.github.io/Latxa-Omni-SNAC/audio/q10.mp3",
+  "text": "Ez, nahi dudana da gaur afaltzeko adibide bat.",
+  "conversation": 5,
+  "category": "Follow-up chain: what to cook for dinner"
+ },
+ {
+  "id": "q11",
+  "speech": "../ansuehu.github.io/Latxa-Omni-SNAC/audio/q11.mp3",
+  "text": "Kaixo, gaur ez dakit zer afaldu, emango didazu adibide bat?",
+  "conversation": 6,
+  "category": "Single questions"
+ }
+]
